@@ -1,0 +1,27 @@
+name: Seigenha Bot
+
+on:
+  schedule:
+    # 毎時0分に実行するタイマー（1時間に1回）
+    # 日本時間の朝8時〜夜23時（夜11時）だけ動くように、UTC時間でガチガチに指定してあるよ！
+    - cron: '0 23,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14 * * *'
+  workflow_dispatch: # ボタンをポチッと押して手動で今すぐ動かしたい時用
+
+jobs:
+  tweet:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install requests_oauthlib beautifulsoup4
+
+      - name: Run bot
+        run: python bot.py
