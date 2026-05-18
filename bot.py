@@ -10,35 +10,34 @@ CONSUMER_SECRET = "y2Qj2iq6PeGJ4cHkqta6nLEGSR8ONwFDpReYQqL0wbpMY3O2bB"
 ACCESS_TOKEN = "2056405722490105856-LUwWbx5BVxtbjzvB5lialvQQD7l28V"
 ACCESS_TOKEN_SECRET = "M2RE8Lfhwi5ABCfdYiN7D9L0GgeOv0myfO6Wbb3u7rqdz"
 
-# --- 2. VOCALOIDのページから文章を密輸する関数 ---
+# --- 2. UTAU ユーザー互助会 @ wiki から文章を密輸 ---
 def get_site_text():
     try:
-        url = "https://ja.wikipedia.org/wiki/VOCALOID"
+        # ユマが見つけてくれた本命のWikiを指定！
+        url = "https://w.atwiki.jp/utaou/"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         html = urllib.request.urlopen(req).read()
         soup = BeautifulSoup(html, 'html.parser')
         
-        paragraphs = soup.find_all('p')
-        site_text = "".join([p.text for p in paragraphs])
+        # @wikiの本文エリアを抽出
+        main_content = soup.find('div', id='wikibody')
+        site_text = main_content.get_text() if main_content else soup.get_text()
         
-        site_text = re.sub(r'\[\d+\]', '', site_text) 
+        # 余計な空白を掃除
+        site_text = re.sub(r'\s+', ' ', site_text)
         return site_text
     except Exception as e:
-        print(f"テキスト密輸に失敗: {e}")
-        return "バニラアイス食べたい！"
+        print(f"密輸失敗: {e}")
+        return "UTAUは歌声合成ツールです。原音設定や周波数表が重要です。"
 
-# --- 3. マルコフ連鎖エンジン（ネットの文だけでまぜまぜ） ---
+# --- 3. マルコフ連鎖エンジン ---
 def generate_markov_text(min_len=10, max_len=140):
-    # 完全にネットの文章だけで勝負！
     full_text = get_site_text()
-    
-    # 1文字ずつバラバラに分解するよ
-    words = re.findall(r'.', full_text.replace('\n', ' '))
+    words = re.findall(r'.', full_text)
     
     if len(words) < 3:
-        return "VOCALOIDの音声合成システムです。"
+        return "UTAUの音源を読み込んでいます。"
     
-    # マルコフ辞書の作成
     markov_dict = {}
     for i in range(len(words) - 2):
         key = (words[i], words[i+1])
@@ -47,8 +46,7 @@ def generate_markov_text(min_len=10, max_len=140):
             markov_dict[key] = []
         markov_dict[key].append(value)
         
-    # 文章生成
-    for _ in range(30):
+    for _ in range(50):
         current_key = random.choice(list(markov_dict.keys()))
         result = list(current_key)
         
@@ -66,7 +64,7 @@ def generate_markov_text(min_len=10, max_len=140):
         if min_len <= len(tweet) <= max_len:
             return tweet
             
-    return "歌声合成ソフトウェア、およびその技術である。"
+    return "歌声合成ツールUTAUの最新情報をチェックしましょう。"
 
 # --- 4. ポスト（ツイート）送信 ---
 def send_tweet(text):
@@ -78,7 +76,7 @@ def send_tweet(text):
     if response.status_code == 201:
         print(f"投稿成功！: {text}")
     else:
-        print(f"エラーだよ: {response.status_code}, {response.text}")
+        print(f"エラー: {response.status_code}")
 
 if __name__ == "__main__":
     generated_text = generate_markov_text()
