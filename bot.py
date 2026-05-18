@@ -25,7 +25,7 @@ def get_site_text():
         return site_text
     except Exception as e:
         print(f"テキスト密輸に失敗: {e}")
-        return "VOCALOIDはメロディと歌詞を入力することでサンプリングされた歌声を合成する技術である。"
+        return "バニラアイス食べたい！"
 
 # --- 3. マルコフ連鎖エンジン（ネットの文だけでまぜまぜ） ---
 def generate_markov_text(min_len=10, max_len=140):
