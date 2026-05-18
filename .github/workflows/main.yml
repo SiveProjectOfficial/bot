@@ -2,10 +2,13 @@ name: Bot
 
 on:
   schedule:
-    # 毎時0分に実行するタイマー（1時間に1回）
-    # 日本時間の朝8時〜夜23時（夜11時）だけ動くように、UTC時間でガチガチに指定してあるよ！
+    # 日本時間の朝8時〜夜23時（1時間に1回）実行
     - cron: '0 23,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14 * * *'
-  workflow_dispatch: # ボタンをポチッと押して手動で今すぐ動かしたい時用
+  workflow_dispatch: 
+
+# ここに「強制的に最新のNode.js 24を使う」設定を追加したよ！
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   tweet:
