@@ -1,20 +1,15 @@
-name: Bot
+name: tweet
 
 on:
   schedule:
-    # 日本時間の朝8時〜夜23時（1時間に1回）実行
-    - cron: '0 23,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14 * * *'
-  workflow_dispatch: 
-
-# ここに「強制的に最新のNode.js 24を使う」設定を追加したよ！
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    - cron: '0 23 * * *' # 日本時間朝8時
+  workflow_dispatch: # 手動実行用
 
 jobs:
   tweet:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -23,8 +18,11 @@ jobs:
           python-version: '3.10'
 
       - name: Install dependencies
-        run: |
-          pip install requests_oauthlib beautifulsoup4
+        run: pip install beautifulsoup4
 
       - name: Run bot
+        env:
+          # ここが超重要！Secretsから情報を持ってくる設定
+          BSKY_HANDLE: ${{ secrets.BSKY_HANDLE }}
+          BSKY_PASSWORD: ${{ secrets.BSKY_PASSWORD }}
         run: python bot.py
