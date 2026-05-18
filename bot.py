@@ -2,23 +2,21 @@ import random
 import re
 import json
 import urllib.request
-from bs4 import BeautifulSoup
-
-# --- 1. Blueskyの認証設定 (GitHubのSecretsに保存する名前だよ) ---
-# 後でGitHubのSettingsからこの3つを登録するだけでOK！
-# BSKY_HANDLE: 自分のID (例: seigenha.bsky.social)
-# BSKY_PASSWORD: アプリパスワード (合鍵)
 import os
+from datetime import datetime, timezone
+
+# --- 1. Blueskyの認証設定 ---
 HANDLE = os.getenv("BSKY_HANDLE")
 PASSWORD = os.getenv("BSKY_PASSWORD")
 
-# --- 2. UTAU @wiki から文章を密輸 (ここは最強のまま！) ---
+# --- 2. UTAU @wiki から文章を密輸 ---
 def get_site_text():
     try:
         url = "https://w.atwiki.jp/utaou/"
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
         req = urllib.request.Request(url, headers=headers)
-        html = urllib.request.urlopen(req).read()
+        with urllib.request.urlopen(req) as res:
+            html = res.read()
         soup = BeautifulSoup(html, 'html.parser')
         main_content = soup.find('div', id='wikibody')
         site_text = main_content.get_text() if main_content else soup.get_text()
@@ -26,8 +24,9 @@ def get_site_text():
     except:
         return "UTAU音源の原音設定は周波数表。連続音と単独音のエイリアス。"
 
-# --- 3. マルコフ連鎖エンジン (正弦波くんの脳みそ) ---
+# --- 3. マルコフ連鎖エンジン ---
 def generate_markov_text():
+    from bs4 import BeautifulSoup
     full_text = get_site_text()
     words = re.findall(r'.', full_text)
     if len(words) < 3: return "UTAUのプロジェクトファイルを読み込みます。"
@@ -47,42 +46,51 @@ def generate_markov_text():
         else: break
     return "".join(result).strip()
 
-# --- 4. Blueskyへポスト (イーロンに1円も払わない魔法) ---
+# --- 4. Blueskyへポスト ---
 def send_bsky_post(text):
-    # ログインしてトークンをもらう
-    auth_url = "https://bsky.social/xrpc/com.atproto.server.createSession"
-    auth_data = json.dumps({"identifier": HANDLE, "password": PASSWORD}).encode("utf-8")
-    req = urllib.request.Request(auth_url, data=auth_data, headers={"Content-Type": "application/json"})
-    
-    with urllib.request.urlopen(req) as res:
-        login_info = json.load(res)
-        access_token = login_info["accessJwt"]
-        did = login_info["did"]
+    try:
+        # ログイン
+        auth_url = "https://bsky.social/xrpc/com.atproto.server.createSession"
+        # HANDLEが空だったりミスしてないか確認用
+        if not HANDLE or not PASSWORD:
+            print("エラー: BSKY_HANDLE または BSKY_PASSWORD が設定されていません！")
+            return
 
-    # 投稿する
-    post_url = "https://bsky.social/xrpc/com.atproto.repo.createRecord"
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    
-    post_data = json.dumps({
-        "repo": did,
-        "collection": "app.bsky.feed.post",
-        "record": {
-            "text": text,
-            "createdAt": now,
-            "$type": "app.bsky.feed.post"
+        auth_data = json.dumps({"identifier": HANDLE.strip(), "password": PASSWORD.strip()}).encode("utf-8")
+        req = urllib.request.Request(auth_url, data=auth_data, headers={"Content-Type": "application/json"})
+        
+        with urllib.request.urlopen(req) as res:
+            login_info = json.load(res)
+            access_token = login_info["accessJwt"]
+            did = login_info["did"]
+
+        # 投稿
+        post_url = "https://bsky.social/xrpc/com.atproto.repo.createRecord"
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        
+        post_payload = {
+            "repo": did,
+            "collection": "app.bsky.feed.post",
+            "record": {
+                "text": text,
+                "createdAt": now,
+                "$type": "app.bsky.feed.post"
+            }
         }
-    }).encode("utf-8")
-    
-    req_post = urllib.request.Request(post_url, data=post_data, headers={
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {access_token}"
-    })
-    
-    with urllib.request.urlopen(req_post) as res_post:
-        if res_post.getcode() == 200:
-            print(f"【青い空に到達】正弦波くん: {text}")
+        
+        req_post = urllib.request.Request(post_url, data=json.dumps(post_payload).encode("utf-8"), headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {access_token}"
+        })
+        
+        with urllib.request.urlopen(req_post) as res_post:
+            if res_post.getcode() == 200:
+                print(f"【成功】正弦波くんが青い空で叫んだよ: {text}")
+    except Exception as e:
+        print(f"エラー発生: {e}")
+        # もし400エラーが出るなら、Secretsの設定ミス（空白が入ってる等）の可能性大！
 
 if __name__ == "__main__":
+    from bs4 import BeautifulSoup
     generated_text = generate_markov_text()
     send_bsky_post(generated_text)
