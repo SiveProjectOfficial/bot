@@ -2,9 +2,9 @@ name: tweet
 
 on:
   schedule:
-    # 毎時20分に実行（00分の混雑を回避！）
-    - cron: '20 * * *'
-  workflow_dispatch: # これがあれば、最悪ボタンでも叩き起こせる！
+    # 毎時20分に実行（5つの項目が必要！）
+    - cron: '20 * * * *'
+  workflow_dispatch: # これがあれば、手動で叩き起こすこともできる！
 
 jobs:
   tweet:
