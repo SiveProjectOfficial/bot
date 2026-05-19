@@ -12,23 +12,14 @@ def load_ng_words():
     return []
 
 def is_safe(text, ng_words):
-    # 1. URL（画像リンクなど）を完全に抹消
     clean_text = re.sub(r'https?://[\w/:%#\$&\?\(\)~\.=\+\-]+', '', text)
-    
-    # 2. @メンション（@usernameなど）を完全に抹消
     clean_text = re.sub(r'@[\w\.]+', '', clean_text)
-    
-    # 3. 「#」の記号だけを消して、後ろの言葉は残す
     clean_text = clean_text.replace("#", " ")
-    
-    # NGワードチェック
     for word in ng_words:
         if word in clean_text:
             return False
-            
     return clean_text.strip()
 
-# --- 日本語をバラバラにする関数 ---
 def tokenize(text):
     t = Tokenizer()
     return " ".join([token.surface for token in t.tokenize(text)])
@@ -53,8 +44,17 @@ def main():
     # 100件×10回のおねだり
     for i in range(10): 
         try:
-            # 【ここが修正ポイント！】直接引数を指定する
-            response = client.app.bsky.feed.get_feed(feed=target_feed, limit=100, cursor=cursor)
+            # 【ここが絶対突破の裏技！】
+            # 辞書型で作って ** で展開すれば、paramsの型エラーを完全にバイパスできる！
+            query_args = {
+                "feed": target_feed,
+                "limit": 100
+            }
+            if cursor:
+                query_args["cursor"] = cursor
+                
+            response = client.app.bsky.feed.get_feed(**query_args)
+            
             all_raw_posts.extend(response.feed)
             cursor = response.cursor
             if not cursor: 
@@ -76,11 +76,8 @@ def main():
         print("素材不足でパズルが組めないよー！")
         return
 
-    # 2. マルコフ連鎖で混ぜる
     source_data = "\n".join(cleaned_texts)
     text_model = markovify.NewlineText(source_data, state_size=2)
-    
-    # 3. 文章生成（140文字以内）
     sentence = text_model.make_short_sentence(140, tries=100)
 
     if sentence:
