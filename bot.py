@@ -1,6 +1,5 @@
 import os
 import re
-import httpx
 from atproto import Client
 import markovify
 from janome.tokenizer import Tokenizer
@@ -13,14 +12,23 @@ def load_ng_words():
     return []
 
 def is_safe(text, ng_words):
+    # 1. URL（画像リンクなど）を完全に抹消
     clean_text = re.sub(r'https?://[\w/:%#\$&\?\(\)~\.=\+\-]+', '', text)
+    
+    # 2. @メンション（@usernameなど）を完全に抹消
     clean_text = re.sub(r'@[\w\.]+', '', clean_text)
+    
+    # 3. ユマの指定通り「#」の記号だけを消して、後ろの言葉は残す！
     clean_text = clean_text.replace("#", " ")
+    
+    # NGワードチェック
     for word in ng_words:
         if word in clean_text:
             return False
+            
     return clean_text.strip()
 
+# --- 日本語をバラバラにする関数 ---
 def tokenize(text):
     t = Tokenizer()
     return " ".join([token.surface for token in t.tokenize(text)])
@@ -30,38 +38,38 @@ def main():
     client.login(os.environ['BSKY_HANDLE'], os.environ['BSKY_PASSWORD'])
     ng_words = load_ng_words()
 
-    # DiscoverフィードのURI（固定）
-    target_feed = 'at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot'
+    try:
+        feeds = client.app.bsky.unspecced.get_popular_feed_generators()
+        target_feed = next((f.uri for f in feeds.feeds if "Discover" in f.display_name or "Discovery" in f.display_name), None)
+        if not target_feed:
+            target_feed = 'at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot'
+    except Exception as e:
+        print(f"フィード検索失敗: {e}")
+        return
 
-    all_raw_texts = []
+    all_raw_posts = []
     cursor = None
     
-    # 【禁断の直接アクセス】ライブラリを使わずHTTPリクエストで言葉を奪い取る！
+    # 100件×3回のおねだりでたくさん集めるよ
+        # 3回おねだり（計300件チェック）を 10回（計1000件チェック）に増やす！
     for i in range(10): 
+
         try:
-            url = f"https://bsky.social/xrpc/app.bsky.feed.getFeed?feed={target_feed}&limit=100"
+            params = {'feed': target_feed, 'limit': 100}
             if cursor:
-                url += f"&cursor={cursor}"
-            
-            headers = {"Authorization": f"Bearer {client.get_access_token()}"}
-            response = httpx.get(url, headers=headers)
-            data = response.json()
-            
-            for item in data.get('feed', []):
-                text = item.get('post', {}).get('record', {}).get('text', '')
-                if text:
-                    all_raw_texts.append(text)
-            
-            cursor = data.get('cursor')
-            if not cursor: 
-                break
+                params['cursor'] = cursor
+            response = client.app.bsky.feed.get_feed(params)
+            all_raw_posts.extend(response.feed)
+            cursor = response.cursor
+            if not cursor: break
         except Exception as e:
             print(f"取得エラー: {e}")
             break
 
     cleaned_texts = []
-    for text in all_raw_texts:
-        safe_text = is_safe(text, ng_words)
+    for item in all_raw_posts:
+        safe_text = is_safe(item.post.record.text, ng_words)
+        # 2文字以上の日本語が含まれていれば、ハッシュタグの残骸でも何でも素材にする！
         if safe_text and len(safe_text) >= 2:
             if re.search(r'[ぁ-んァ-ヶー一-龠]', safe_text):
                 cleaned_texts.append(tokenize(safe_text))
@@ -69,11 +77,14 @@ def main():
     print(f"最終的に集まった素材数: {len(cleaned_texts)}件")
 
     if len(cleaned_texts) < 3:
-        print("素材不足でパズルが組めないよー！")
+        print("素材不足！")
         return
 
+    # 2. マルコフ連鎖で混ぜる
     source_data = "\n".join(cleaned_texts)
     text_model = markovify.NewlineText(source_data, state_size=2)
+    
+    # 3. 文章生成（140文字以内）
     sentence = text_model.make_short_sentence(140, tries=100)
 
     if sentence:
