@@ -50,16 +50,14 @@ def main():
     all_raw_posts = []
     cursor = None
     
-    # 100件×3回のおねだりでたくさん集めるよ
+    # 【修正箇所】100件×10回のおねだりを正しい書き方に直したよ！
     for i in range(10): 
         try:
-            params = {'feed': target_feed, 'limit': 100}
-            if cursor:
-                params['cursor'] = cursor
-            response = client.app.bsky.feed.get_feed(params)
+            response = client.app.bsky.feed.get_feed(feed=target_feed, limit=100, cursor=cursor)
             all_raw_posts.extend(response.feed)
             cursor = response.cursor
-            if not cursor: break
+            if not cursor: 
+                break
         except Exception as e:
             print(f"取得エラー: {e}")
             break
@@ -75,7 +73,7 @@ def main():
     print(f"最終的に集まった素材数: {len(cleaned_texts)}件")
 
     if len(cleaned_texts) < 3:
-        print("素材不足！")
+        print("素材不足でパズルが組めないよー！")
         return
 
     # 2. マルコフ連鎖で混ぜる
