@@ -51,7 +51,7 @@ def main():
     cursor = None
     
     # 100件×3回のおねだりでたくさん集めるよ
-    for i in range(3): 
+    for i in range(10): 
         try:
             params = {'feed': target_feed, 'limit': 100}
             if cursor:
