@@ -12,13 +12,20 @@ def load_ng_words():
     return []
 
 def is_safe(text, ng_words):
-    # 画像リンクやURL、メンションを綺麗に消して、言葉だけを抽出！
+    # 1. URL（画像リンクなど）を完全に抹消
     clean_text = re.sub(r'https?://[\w/:%#\$&\?\(\)~\.=\+\-]+', '', text)
+    
+    # 2. @メンション（@usernameなど）を完全に抹消
     clean_text = re.sub(r'@[\w\.]+', '', clean_text)
     
+    # 3. ユマの指定通り「#」の記号だけを消して、後ろの言葉は残す！
+    clean_text = clean_text.replace("#", " ")
+    
+    # NGワードチェック
     for word in ng_words:
         if word in clean_text:
             return False
+            
     return clean_text.strip()
 
 # --- 日本語をバラバラにする関数 ---
@@ -31,7 +38,6 @@ def main():
     client.login(os.environ['BSKY_HANDLE'], os.environ['BSKY_PASSWORD'])
     ng_words = load_ng_words()
 
-    # 1. フィードを探す
     try:
         feeds = client.app.bsky.unspecced.get_popular_feed_generators()
         target_feed = next((f.uri for f in feeds.feeds if "Discover" in f.display_name or "Discovery" in f.display_name), None)
@@ -41,44 +47,42 @@ def main():
         print(f"フィード検索失敗: {e}")
         return
 
-    # 2. 【怒られない対策】上限の100件ずつ、3回に分けて「おかわり」する（計300件目標）
     all_raw_posts = []
     cursor = None
     
+    # 100件×3回のおねだりでたくさん集めるよ
     for i in range(3): 
         try:
-            # limitは安全な「100」に固定！これでエラーは絶対起きないよ
             params = {'feed': target_feed, 'limit': 100}
             if cursor:
                 params['cursor'] = cursor
-            
             response = client.app.bsky.feed.get_feed(params)
             all_raw_posts.extend(response.feed)
             cursor = response.cursor
-            if not cursor: 
-                break
+            if not cursor: break
         except Exception as e:
-            print(f"{i+1}回目の取得でエラー: {e}")
+            print(f"取得エラー: {e}")
             break
 
     cleaned_texts = []
     for item in all_raw_posts:
         safe_text = is_safe(item.post.record.text, ng_words)
-        if safe_text and len(safe_text) > 5:
+        # 2文字以上の日本語が含まれていれば、ハッシュタグの残骸でも何でも素材にする！
+        if safe_text and len(safe_text) >= 2:
             if re.search(r'[ぁ-んァ-ヶー一-龠]', safe_text):
                 cleaned_texts.append(tokenize(safe_text))
 
     print(f"最終的に集まった素材数: {len(cleaned_texts)}件")
 
     if len(cleaned_texts) < 3:
-        print("素材が全然足りない！")
+        print("素材不足！")
         return
 
-    # 3. マルコフ連鎖で混ぜる
+    # 2. マルコフ連鎖で混ぜる
     source_data = "\n".join(cleaned_texts)
     text_model = markovify.NewlineText(source_data, state_size=2)
-
-    # 4. 文章生成
+    
+    # 3. 文章生成（140文字以内）
     sentence = text_model.make_short_sentence(140, tries=100)
 
     if sentence:
@@ -86,7 +90,7 @@ def main():
         print(f"投稿します: {final_post}")
         client.send_post(text=final_post)
     else:
-        print("カオスすぎて文章が組めなかった！")
+        print("文章が組めなかった")
 
 if __name__ == "__main__":
     main()
