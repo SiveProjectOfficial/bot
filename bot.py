@@ -6,7 +6,6 @@ from janome.tokenizer import Tokenizer
 
 # --- 鉄壁のNGワードフィルター ---
 def load_ng_words():
-    # ng_words.txt からNGワードを読み込む
     if os.path.exists("ng_words.txt"):
         with open("ng_words.txt", "r", encoding="utf-8") as f:
             return [line.strip() for line in f if line.strip()]
@@ -17,7 +16,7 @@ def is_safe(text, ng_words):
     if re.search(r"http|@|#", text):
         return False
     
-    # 読み込んだNGワードと照らし合わせる
+    # NGワードチェック
     for word in ng_words:
         if word in text:
             return False
@@ -35,9 +34,14 @@ def main():
     # NGワードリストを読み込み
     ng_words = load_ng_words()
 
-    # 1. タイムライン（おすすめ含む）から投稿を50件取得
+    # 1. 【改造！】BlueSkyの「Discover（おすすめ）」フィードから100件取得
+    # これでフォロー外の「世界の呟き」を大量にエサにするよ
     try:
-        response = client.get_timeline(limit=50)
+        # Discoverフィードの専用URIを指定して取得
+        response = client.app.bsky.feed.get_feed({
+            'feed': 'at://did:plc:z7w6ecvfs5sgwga6i6clgqzz/app.bsky.feed.generator/whats-hot',
+            'limit': 100
+        })
         feed = response.feed
     except Exception as e:
         print(f"取得失敗: {e}")
