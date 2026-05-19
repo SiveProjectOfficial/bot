@@ -12,7 +12,7 @@ def load_ng_words():
     return []
 
 def is_safe(text, ng_words):
-    # URL、メンション、ハッシュタグが含まれる投稿はゴミが混ざるので除外
+    # URL、メンション、ハッシュタグが含まれる投稿はノイズになるので除外
     if re.search(r"http|@|#", text):
         return False
     
@@ -34,10 +34,9 @@ def main():
     # NGワードリストを読み込み
     ng_words = load_ng_words()
 
-    # 1. 【改造！】BlueSkyの「Discover（おすすめ）」フィードから100件取得
-    # これでフォロー外の「世界の呟き」を大量にエサにするよ
+    # 1. BlueSkyの「Discover（おすすめ）」フィードから100件取得
+    # 住所（URI）を最新の「whats-hot」に変更したよ
     try:
-        # Discoverフィードの専用URIを指定して取得
         response = client.app.bsky.feed.get_feed({
             'feed': 'at://did:plc:z7w6ecvfs5sgwga6i6clgqzz/app.bsky.feed.generator/whats-hot',
             'limit': 100
@@ -51,7 +50,7 @@ def main():
     for item in feed:
         text = item.post.record.text
         if is_safe(text, ng_words):
-            # 安全な投稿だけをバラバラにする
+            # 安全な投稿だけを単語に分解してリストに追加
             cleaned_texts.append(tokenize(text))
 
     if len(cleaned_texts) < 5:
@@ -60,17 +59,19 @@ def main():
 
     # 2. マルコフ連鎖モデルを作成
     source_data = "\n".join(cleaned_texts)
+    # state_size=2（2単語の繋がりをみる）が一番自然で面白い文章になりやすいよ
     text_model = markovify.NewlineText(source_data, state_size=2)
 
     # 3. 文章を生成（140文字以内）
     sentence = text_model.make_short_sentence(140, tries=100)
 
     if sentence:
+        # 分かち書きのスペースを詰めて、正弦波くんが叫ぶ！
         final_post = sentence.replace(" ", "")
         print(f"投稿します: {final_post}")
         client.send_post(text=final_post)
     else:
-        print("安全な文章が作れなかったよ")
+        print("面白い文章が組み立てられなかったよ")
 
 if __name__ == "__main__":
     main()
