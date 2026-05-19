@@ -18,7 +18,7 @@ def is_safe(text, ng_words):
     # 2. @メンション（@usernameなど）を完全に抹消
     clean_text = re.sub(r'@[\w\.]+', '', clean_text)
     
-    # 3. ユマの指定通り「#」の記号だけを消して、後ろの言葉は残す！
+    # 3. 「#」の記号だけを消して、後ろの言葉は残す
     clean_text = clean_text.replace("#", " ")
     
     # NGワードチェック
@@ -50,9 +50,10 @@ def main():
     all_raw_posts = []
     cursor = None
     
-    # 【修正箇所】100件×10回のおねだりを正しい書き方に直したよ！
+    # 100件×10回のおねだり
     for i in range(10): 
         try:
+            # 【ここが修正ポイント！】paramsを使わず直接指定する
             response = client.app.bsky.feed.get_feed(feed=target_feed, limit=100, cursor=cursor)
             all_raw_posts.extend(response.feed)
             cursor = response.cursor
@@ -65,7 +66,6 @@ def main():
     cleaned_texts = []
     for item in all_raw_posts:
         safe_text = is_safe(item.post.record.text, ng_words)
-        # 2文字以上の日本語が含まれていれば、ハッシュタグの残骸でも何でも素材にする！
         if safe_text and len(safe_text) >= 2:
             if re.search(r'[ぁ-んァ-ヶー一-龠]', safe_text):
                 cleaned_texts.append(tokenize(safe_text))
