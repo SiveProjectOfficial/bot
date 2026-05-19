@@ -1,5 +1,6 @@
 import os
 import re
+import httpx
 from atproto import Client
 import markovify
 from janome.tokenizer import Tokenizer
@@ -29,34 +30,29 @@ def main():
     client.login(os.environ['BSKY_HANDLE'], os.environ['BSKY_PASSWORD'])
     ng_words = load_ng_words()
 
-    try:
-        feeds = client.app.bsky.unspecced.get_popular_feed_generators()
-        target_feed = next((f.uri for f in feeds.feeds if "Discover" in f.display_name or "Discovery" in f.display_name), None)
-        if not target_feed:
-            target_feed = 'at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot'
-    except Exception as e:
-        print(f"フィード検索失敗: {e}")
-        return
+    # DiscoverフィードのURI（固定）
+    target_feed = 'at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot'
 
-    all_raw_posts = []
+    all_raw_texts = []
     cursor = None
     
-    # 100件×10回のおねだり
+    # 【禁断の直接アクセス】ライブラリを使わずHTTPリクエストで言葉を奪い取る！
     for i in range(10): 
         try:
-            # 【ここが絶対突破の裏技！】
-            # 辞書型で作って ** で展開すれば、paramsの型エラーを完全にバイパスできる！
-            query_args = {
-                "feed": target_feed,
-                "limit": 100
-            }
+            url = f"https://bsky.social/xrpc/app.bsky.feed.getFeed?feed={target_feed}&limit=100"
             if cursor:
-                query_args["cursor"] = cursor
-                
-            response = client.app.bsky.feed.get_feed(**query_args)
+                url += f"&cursor={cursor}"
             
-            all_raw_posts.extend(response.feed)
-            cursor = response.cursor
+            headers = {"Authorization": f"Bearer {client.get_access_token()}"}
+            response = httpx.get(url, headers=headers)
+            data = response.json()
+            
+            for item in data.get('feed', []):
+                text = item.get('post', {}).get('record', {}).get('text', '')
+                if text:
+                    all_raw_texts.append(text)
+            
+            cursor = data.get('cursor')
             if not cursor: 
                 break
         except Exception as e:
@@ -64,8 +60,8 @@ def main():
             break
 
     cleaned_texts = []
-    for item in all_raw_posts:
-        safe_text = is_safe(item.post.record.text, ng_words)
+    for text in all_raw_texts:
+        safe_text = is_safe(text, ng_words)
         if safe_text and len(safe_text) >= 2:
             if re.search(r'[ぁ-んァ-ヶー一-龠]', safe_text):
                 cleaned_texts.append(tokenize(safe_text))
