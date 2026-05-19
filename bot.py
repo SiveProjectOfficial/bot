@@ -12,12 +12,15 @@ def load_ng_words():
     return []
 
 def is_safe(text, ng_words):
-    if re.search(r"http|@|#", text):
-        return False
+    # 素材不足を防ぐため、URLが含まれていても、その部分を消して使うように改良！
+    clean_text = re.sub(r'https?://[\w/:%#\$&\?\(\)~\.=\+\-]+', '', text)
+    clean_text = re.sub(r'@[\w\.]+', '', clean_text)
+    
+    # NGワードチェック
     for word in ng_words:
-        if word in text:
+        if word in clean_text:
             return False
-    return True
+    return clean_text.strip()
 
 # --- 日本語をバラバラにする関数 ---
 def tokenize(text):
@@ -30,22 +33,20 @@ def main():
 
     ng_words = load_ng_words()
 
-    # 1. 【最強版】「Discover（おすすめ）」フィードを探して取得
+    # 1. 「Discover」フィードを探す
     try:
-        # まず「Discover」という名前のフィードを探す
         feeds = client.app.bsky.unspecced.get_popular_feed_generators()
         target_feed = None
         for f in feeds.feeds:
-            if "Discover" in f.display_name:
+            if "Discover" in f.display_name or "Discovery" in f.display_name:
                 target_feed = f.uri
                 break
         
-        # 見つからなかったら「Whats-hot」を予備にする
         if not target_feed:
-            target_feed = 'at://did:plc:z7w6ecvfs5sgwga6i6clgqzz/app.bsky.feed.generator/whats-hot'
+            target_feed = 'at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot'
 
-        print(f"ターゲットフィード: {target_feed}")
-        response = client.app.bsky.feed.get_feed({'feed': target_feed, 'limit': 100})
+        # 件数を200件に倍増！
+        response = client.app.bsky.feed.get_feed({'feed': target_feed, 'limit': 200})
         feed = response.feed
     except Exception as e:
         print(f"取得失敗: {e}")
@@ -53,13 +54,18 @@ def main():
 
     cleaned_texts = []
     for item in feed:
-        text = item.post.record.text
-        if is_safe(text, ng_words):
-            if re.search(r'[ぁ-んァ-ヶー一-龠]', text):
-                cleaned_texts.append(tokenize(text))
+        raw_text = item.post.record.text
+        safe_text = is_safe(raw_text, ng_words)
+        
+        if safe_text and len(safe_text) > 5:
+            # 日本語が含まれているかチェック
+            if re.search(r'[ぁ-んァ-ヶー一-龠]', safe_text):
+                cleaned_texts.append(tokenize(safe_text))
 
-    if len(cleaned_texts) < 5:
-        print("素材不足！")
+    print(f"集まった素材数: {len(cleaned_texts)}件")
+
+    if len(cleaned_texts) < 3:
+        print("どうしても素材が足りない！")
         return
 
     # 2. マルコフ連鎖で混ぜる
@@ -74,7 +80,7 @@ def main():
         print(f"投稿します: {final_post}")
         client.send_post(text=final_post)
     else:
-        print("文章が作れなかった")
+        print("文章が組み立てられなかった")
 
 if __name__ == "__main__":
     main()
