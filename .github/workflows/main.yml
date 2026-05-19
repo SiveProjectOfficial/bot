@@ -2,11 +2,9 @@ name: tweet
 
 on:
   schedule:
-    # 日本時間の朝8:00
-    - cron: '0 23 * * *'
-    # 日本時間の朝9:00〜夜23:00（1時間おき）
-    - cron: '0 0-14 * * *'
-  workflow_dispatch: # 手動実行用
+    # 毎時20分に実行（00分の混雑を回避！）
+    - cron: '20 * * *'
+  workflow_dispatch: # これがあれば、最悪ボタンでも叩き起こせる！
 
 jobs:
   tweet:
