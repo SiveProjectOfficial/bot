@@ -2,8 +2,10 @@ name: tweet
 
 on:
   schedule:
-    # UTCの23時〜翌14時（日本時間の朝8時00分〜夜23時00分）まで1時間おきに実行
-    - cron: '0 23-14 * * *'
+    # 日本時間の朝8:00
+    - cron: '0 23 * * *'
+    # 日本時間の朝9:00〜夜23:00（1時間おき）
+    - cron: '0 0-14 * * *'
   workflow_dispatch: # 手動実行用
 
 jobs:
@@ -23,6 +25,7 @@ jobs:
 
       - name: Run bot
         env:
+          # Secretsから情報を持ってくる設定
           BSKY_HANDLE: ${{ secrets.BSKY_HANDLE }}
           BSKY_PASSWORD: ${{ secrets.BSKY_PASSWORD }}
         run: python bot.py
