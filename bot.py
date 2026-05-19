@@ -12,11 +12,8 @@ def load_ng_words():
     return []
 
 def is_safe(text, ng_words):
-    # URL、メンション、ハッシュタグが含まれる投稿はノイズになるので除外
     if re.search(r"http|@|#", text):
         return False
-    
-    # NGワードチェック
     for word in ng_words:
         if word in text:
             return False
@@ -31,16 +28,24 @@ def main():
     client = Client()
     client.login(os.environ['BSKY_HANDLE'], os.environ['BSKY_PASSWORD'])
 
-    # NGワードリストを読み込み
     ng_words = load_ng_words()
 
-    # 1. BlueSkyの「Discover（おすすめ）」フィードから100件取得
-    # 住所（URI）を最新の「whats-hot」に変更したよ
+    # 1. 【最強版】「Discover（おすすめ）」フィードを探して取得
     try:
-        response = client.app.bsky.feed.get_feed({
-            'feed': 'at://did:plc:z7w6ecvfs5sgwga6i6clgqzz/app.bsky.feed.generator/whats-hot',
-            'limit': 100
-        })
+        # まず「Discover」という名前のフィードを探す
+        feeds = client.app.bsky.unspecced.get_popular_feed_generators()
+        target_feed = None
+        for f in feeds.feeds:
+            if "Discover" in f.display_name:
+                target_feed = f.uri
+                break
+        
+        # 見つからなかったら「Whats-hot」を予備にする
+        if not target_feed:
+            target_feed = 'at://did:plc:z7w6ecvfs5sgwga6i6clgqzz/app.bsky.feed.generator/whats-hot'
+
+        print(f"ターゲットフィード: {target_feed}")
+        response = client.app.bsky.feed.get_feed({'feed': target_feed, 'limit': 100})
         feed = response.feed
     except Exception as e:
         print(f"取得失敗: {e}")
@@ -50,28 +55,26 @@ def main():
     for item in feed:
         text = item.post.record.text
         if is_safe(text, ng_words):
-            # 安全な投稿だけを単語に分解してリストに追加
-            cleaned_texts.append(tokenize(text))
+            if re.search(r'[ぁ-んァ-ヶー一-龠]', text):
+                cleaned_texts.append(tokenize(text))
 
     if len(cleaned_texts) < 5:
-        print("安全な素材が足りないから今回はお休み！")
+        print("素材不足！")
         return
 
-    # 2. マルコフ連鎖モデルを作成
+    # 2. マルコフ連鎖で混ぜる
     source_data = "\n".join(cleaned_texts)
-    # state_size=2（2単語の繋がりをみる）が一番自然で面白い文章になりやすいよ
     text_model = markovify.NewlineText(source_data, state_size=2)
 
-    # 3. 文章を生成（140文字以内）
+    # 3. 文章生成
     sentence = text_model.make_short_sentence(140, tries=100)
 
     if sentence:
-        # 分かち書きのスペースを詰めて、正弦波くんが叫ぶ！
         final_post = sentence.replace(" ", "")
         print(f"投稿します: {final_post}")
         client.send_post(text=final_post)
     else:
-        print("面白い文章が組み立てられなかったよ")
+        print("文章が作れなかった")
 
 if __name__ == "__main__":
     main()
