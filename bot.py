@@ -53,7 +53,7 @@ def main():
     # 100件×10回のおねだり
     for i in range(10): 
         try:
-            # 【ここが修正ポイント！】paramsを使わず直接指定する
+            # 【ここが修正ポイント！】直接引数を指定する
             response = client.app.bsky.feed.get_feed(feed=target_feed, limit=100, cursor=cursor)
             all_raw_posts.extend(response.feed)
             cursor = response.cursor
