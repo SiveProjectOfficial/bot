@@ -157,13 +157,13 @@ def main():
         except Exception as e:
             print(f"取得エラー: {e}")
             break
-
     cleaned_texts = []
     for item in all_raw_posts:
-        safe_text = is_safe(item.post.record.text, ng_words)
-        if safe_text and len(safe_text) >= 2:
-            if re.search(r'[ぁ-んァ-ヶー一-龠]', safe_text):
+        if hasattr(item.post.record, 'text'):
+            safe_text = is_safe(item.post.record.text, ng_words)
+            if safe_text and len(safe_text) >= 1:
                 cleaned_texts.append(tokenize(safe_text))
+
 
     print(f"最終的に集まった素材数: {len(cleaned_texts)}件")
 
