@@ -1,4 +1,4 @@
-マルコフ連鎖botのテンプレにしてもらっても構いません！  
+### マルコフ連鎖botのテンプレにしてもらっても構いません！  
 
 ***このbotのファイルを使う前にやる事！***  
 Blueskyから  
@@ -9,20 +9,31 @@ Blueskyから
 **アプリパスワードは三本線の「設定」→「プライバシーとセキュリティ」→「アプリパスワード」からもらえます！）**  
 この2つはメモアプリ等にコピーしておいてください。 
 
-1. Githubで新規リポジトリを作成したら「More」→「Settings」へ行きます。  
-「Settings」から「Secrets and variables」→「Actions」へ行きます。そこで先ほどコピペした  
-「BSKY_HANDLE」  
-「BSKY_PASSWORD」  
+1. Githubで新規リポジトリを作成したら
+**「More」**  
+↓  
+**「Settings」**  
+へ行きます。そこから更に
+**「Settings」**  
+↓  
+**「Secrets and variables」**  
+↓  
+**「Actions」**  
+へ行き、そこで先ほどコピペした
+
+**「BSKY_HANDLE」**  
+**「BSKY_PASSWORD」**  
+
 を作成してください。
 
-2. 以下をダウンロード又はコピーしてGithubについさっき作ったリポジトリに新規ファイルを作成してください。  
+6. 以下をダウンロード又はコピーしてGithubについさっき作ったリポジトリに新規ファイルを作成してください。  
 
-・ng_words.txt  
-・bot.py  
-・requirements.txt  
-・bot/.github/workflows/main.yml 
+**・ng_words.txt**  
+**・bot.py**  
+**・requirements.txt**  
+**・bot/.github/workflows/main.yml** 
 
-**ハッシュタグリポスト部分のハッシュタグは貴方のお好みのハッシュタグに書き換えてください！**  
+***ハッシュタグリポスト部分のハッシュタグは貴方のお好みのハッシュタグに書き換えてください！***  
 
 【このリポジトリにあるファイルについて】  
 ・自作発言しないでください。  
