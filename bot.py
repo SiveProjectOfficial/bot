@@ -16,6 +16,7 @@ def save_replied_uri(uri):
     with open(REPLIED_HISTORY_FILE, "a", encoding="utf-8") as f:
         f.write(f"{uri}\n")
 
+# --- 鉄壁のNGワードフィルター ---
 def load_ng_words():
     if os.path.exists("ng_words.txt"):
         with open("ng_words.txt", "r", encoding="utf-8") as f:
@@ -23,30 +24,32 @@ def load_ng_words():
     return []
 
 def is_safe(text, ng_words):
-    
+    # ハッシュタグを含む投稿はマルコフの学習や返信から弾く
     if '#' in text or re.search(r'#[^\s]+', text):
         return False
 
-    
+    # 1. URL（画像リンクなど）を完全に抹消
     clean_text = re.sub(r'https?://[\w/:%#\$&\?\(\)~\.=\+\-]+', '', text)
-    clean_text = re.sub(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '', clean_text)
     
-    
+    # 2. @メンション（@usernameなど）を完全に抹消
     clean_text = re.sub(r'@[\w\.]+', '', clean_text)
     
+    # 3. ユマの指定通り「#」の記号だけを消して、後ろの言葉は残す！
+    clean_text = clean_text.replace("#", " ")
     
+    # NGワードチェック
     for word in ng_words:
         if word in clean_text:
             return False
             
     return clean_text.strip()
 
-
+# --- 日本語をバラバラにする関数 ---
 def tokenize(text):
     t = Tokenizer()
     return " ".join([token.surface for token in t.tokenize(text)])
 
-
+# --- ハッシュタグ検索＆リポスト機能 ---
 def repost_hashtag_posts(client, tag_name, ng_words, limit=10):
     my_handle = os.environ.get('BSKY_HANDLE')
     print(f"#{tag_name} の最新投稿をチェック中...")
@@ -54,11 +57,9 @@ def repost_hashtag_posts(client, tag_name, ng_words, limit=10):
     try:
         search_res = client.app.bsky.feed.search_posts({'q': f"#{tag_name}", 'limit': limit})
         for post in search_res.posts:
-            
             if post.author.handle == my_handle:
                 continue
 
-            
             text = post.record.text
             is_ng = any(w in text for w in ng_words)
             if is_ng:
@@ -74,7 +75,7 @@ def repost_hashtag_posts(client, tag_name, ng_words, limit=10):
     except Exception as e:
         print(f"ハッシュタグリポストエラー: {e}")
 
-
+# --- コメント（メンション・返信）への自動お返事機能 ---
 def reply_to_comments(client, text_model, ng_words):
     print("コメント（自分宛ての返信）をチェック中...")
     replied_uris = load_replied_uris()
@@ -116,10 +117,9 @@ def main():
     client.login(os.environ['BSKY_HANDLE'], os.environ['BSKY_PASSWORD'])
     ng_words = load_ng_words()
 
-    
+    # 0. まずハッシュタグの投稿をチェックしてリポスト＆いいね
     repost_hashtag_posts(client, "おとなみあーと", ng_words)
 
-    
     try:
         feeds = client.app.bsky.unspecced.get_popular_feed_generators()
         target_feed = next((f.uri for f in feeds.feeds if "Discover" in f.display_name or "Discovery" in f.display_name), None)
@@ -155,29 +155,25 @@ def main():
     print(f"最終的に集まった素材数: {len(cleaned_texts)}件")
 
     if len(cleaned_texts) < 3:
-        print("素材不足だよ！")
+        print("素材不足！")
         return
 
-    
+    # 2. マルコフ連鎖で混ぜる
     source_data = "\n".join(cleaned_texts)
     text_model = markovify.NewlineText(source_data, state_size=2)
-
     
+    # 2.5 メンションや返信が来てたらお返事する処理をここに挟む
     reply_to_comments(client, text_model, ng_words)
 
-    
+    # 3. 文章生成（140文字以内）して通常ポスト
     sentence = text_model.make_short_sentence(140, tries=100)
 
     if sentence:
         final_post = sentence.replace(" ", "")
-        
-        if is_safe(final_post, ng_words):
-            print(f"投稿するよ！: {final_post}")
-            client.send_post(text=final_post)
-        else:
-            print(f"生成文に「NGワード」または「ハッシュタグ」が入っちゃったから投稿をスキップしたよ…: {final_post}")
+        print(f"投稿します: {final_post}")
+        client.send_post(text=final_post)
     else:
-        print("文章を組めなかったよ…")
+        print("文章が組めなかった")
 
 if __name__ == "__main__":
     main()
