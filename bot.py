@@ -6,7 +6,6 @@ from janome.tokenizer import Tokenizer
 
 REPLIED_HISTORY_FILE = "replied_posts.txt"
 
-# --- 返信済み投稿IDの記録（同じコメントへの重複返信を100%防ぐ） ---
 def load_replied_uris():
     if os.path.exists(REPLIED_HISTORY_FILE):
         with open(REPLIED_HISTORY_FILE, "r", encoding="utf-8") as f:
@@ -17,7 +16,6 @@ def save_replied_uri(uri):
     with open(REPLIED_HISTORY_FILE, "a", encoding="utf-8") as f:
         f.write(f"{uri}\n")
 
-# --- 鉄壁のNGワード＆ハッシュタグ完全拒否フィルター ---
 def load_ng_words():
     if os.path.exists("ng_words.txt"):
         with open("ng_words.txt", "r", encoding="utf-8") as f:
@@ -25,30 +23,30 @@ def load_ng_words():
     return []
 
 def is_safe(text, ng_words):
-    # 0. ハッシュタグ（#）が含まれているものは問答無用で拒否！
+    
     if '#' in text or re.search(r'#[^\s]+', text):
         return False
 
-    # 1. URL（画像リンクなど）を完全に抹消
+    
     clean_text = re.sub(r'https?://[\w/:%#\$&\?\(\)~\.=\+\-]+', '', text)
     clean_text = re.sub(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '', clean_text)
     
-    # 2. @メンション（@usernameなど）を完全に抹消
+    
     clean_text = re.sub(r'@[\w\.]+', '', clean_text)
     
-    # NGワードチェック
+    
     for word in ng_words:
         if word in clean_text:
             return False
             
     return clean_text.strip()
 
-# --- 日本語をバラバラにする関数 ---
+
 def tokenize(text):
     t = Tokenizer()
     return " ".join([token.surface for token in t.tokenize(text)])
 
-# --- 1. #おとなみあーと のリポスト＆いいね ---
+
 def repost_hashtag_posts(client, tag_name, ng_words, limit=10):
     my_handle = os.environ.get('BSKY_HANDLE')
     print(f"#{tag_name} の最新投稿をチェック中...")
@@ -56,11 +54,11 @@ def repost_hashtag_posts(client, tag_name, ng_words, limit=10):
     try:
         search_res = client.app.bsky.feed.search_posts({'q': f"#{tag_name}", 'limit': limit})
         for post in search_res.posts:
-            # 自分の投稿は除外
+            
             if post.author.handle == my_handle:
                 continue
 
-            # ここではあえてハッシュタグ付きのFAを拾いたいので、is_safeの代わりに直接NGワードだけチェック
+            
             text = post.record.text
             is_ng = any(w in text for w in ng_words)
             if is_ng:
@@ -76,9 +74,9 @@ def repost_hashtag_posts(client, tag_name, ng_words, limit=10):
     except Exception as e:
         print(f"ハッシュタグリポストエラー: {e}")
 
-# --- 2. コメ欄（自分宛ての通知）にだけメンション付きでお返事 ---
+
 def reply_to_comments(client, text_model, ng_words):
-    print("コメ欄（自分宛ての返信）をチェック中...")
+    print("コメント（自分宛ての返信）をチェック中...")
     replied_uris = load_replied_uris()
 
     try:
@@ -111,17 +109,17 @@ def reply_to_comments(client, text_model, ng_words):
 
         client.app.bsky.notification.update_seen({'seen_at': client.get_current_time_iso()})
     except Exception as e:
-        print(f"コメ欄返信エラー: {e}")
+        print(f"コメント返信エラー: {e}")
 
 def main():
     client = Client()
     client.login(os.environ['BSKY_HANDLE'], os.environ['BSKY_PASSWORD'])
     ng_words = load_ng_words()
 
-    # ★ 機能1: #おとなみあーと の自動リポスト＆いいね
+    
     repost_hashtag_posts(client, "おとなみあーと", ng_words)
 
-    # ★ 機能2: フィードから素材を集める（1000件チェック）
+    
     try:
         feeds = client.app.bsky.unspecced.get_popular_feed_generators()
         target_feed = next((f.uri for f in feeds.feeds if "Discover" in f.display_name or "Discovery" in f.display_name), None)
@@ -157,29 +155,29 @@ def main():
     print(f"最終的に集まった素材数: {len(cleaned_texts)}件")
 
     if len(cleaned_texts) < 3:
-        print("素材不足！")
+        print("素材不足だよ！")
         return
 
-    # マルコフ連鎖でモデル作成
+    
     source_data = "\n".join(cleaned_texts)
     text_model = markovify.NewlineText(source_data, state_size=2)
 
-    # ★ 機能3: コメ欄にお返事
+    
     reply_to_comments(client, text_model, ng_words)
 
-    # ★ 機能4: 通常のマルコフ連鎖ポスト（140文字以内）
+    
     sentence = text_model.make_short_sentence(140, tries=100)
 
     if sentence:
         final_post = sentence.replace(" ", "")
         
         if is_safe(final_post, ng_words):
-            print(f"投稿します: {final_post}")
+            print(f"投稿するよ！: {final_post}")
             client.send_post(text=final_post)
         else:
-            print(f"生成文にNGワードまたはハッシュタグが含まれたため投稿をスキップ: {final_post}")
+            print(f"生成文に「NGワード」または「ハッシュタグ」が入っちゃったから投稿をスキップしたよ…: {final_post}")
     else:
-        print("文章が組めなかった")
+        print("文章を組めなかったよ…")
 
 if __name__ == "__main__":
     main()
