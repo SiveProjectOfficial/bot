@@ -171,7 +171,7 @@ def main():
 
     print(f"最終的に集まった素材数: {len(cleaned_texts)}件")
 
-    if len(cleaned_texts) < 3:
+    if len(cleaned_texts) < 2:
         print("素材不足！")
         return
 
