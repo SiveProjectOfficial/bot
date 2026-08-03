@@ -17,7 +17,7 @@ def save_replied_uri(uri):
     with open(REPLIED_HISTORY_FILE, "a", encoding="utf-8") as f:
         f.write(f"{uri}\n")
 
-# --- 鉄壁のNGワードフィルター ---
+# --- 鉄壁のNGワード＆ハッシュタグ完全拒否フィルター ---
 def load_ng_words():
     if os.path.exists("ng_words.txt"):
         with open("ng_words.txt", "r", encoding="utf-8") as f:
@@ -25,14 +25,16 @@ def load_ng_words():
     return []
 
 def is_safe(text, ng_words):
+    # 0. ハッシュタグ（#）が含まれているものは問答無用で拒否！
+    if '#' in text or re.search(r'#[^\s]+', text):
+        return False
+
     # 1. URL（画像リンクなど）を完全に抹消
     clean_text = re.sub(r'https?://[\w/:%#\$&\?\(\)~\.=\+\-]+', '', text)
     clean_text = re.sub(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '', clean_text)
+    
     # 2. @メンション（@usernameなど）を完全に抹消
     clean_text = re.sub(r'@[\w\.]+', '', clean_text)
-    
-    # 3. ユマの指定通り「#」の記号だけを消して、後ろの言葉は残す！
-    clean_text = clean_text.replace("#", " ")
     
     # NGワードチェック
     for word in ng_words:
@@ -58,8 +60,10 @@ def repost_hashtag_posts(client, tag_name, ng_words, limit=10):
             if post.author.handle == my_handle:
                 continue
 
-            # NGワードチェック
-            if not is_safe(post.record.text, ng_words):
+            # ここではあえてハッシュタグ付きのFAを拾いたいので、is_safeの代わりに直接NGワードだけチェック
+            text = post.record.text
+            is_ng = any(w in text for w in ng_words)
+            if is_ng:
                 print(f"NGワードを含むためリポストをスキップ (@{post.author.handle})")
                 continue
 
@@ -68,7 +72,6 @@ def repost_hashtag_posts(client, tag_name, ng_words, limit=10):
                 client.repost(post.uri, post.cid)
                 print(f"#{tag_name} をリポスト＆いいねしました！ (@{post.author.handle})")
             except Exception:
-                # すでにいいね/リポスト済みの場合はスルー
                 pass
     except Exception as e:
         print(f"ハッシュタグリポストエラー: {e}")
@@ -81,18 +84,15 @@ def reply_to_comments(client, text_model, ng_words):
     try:
         response = client.app.bsky.notification.list_notifications({'limit': 10})
         for notif in response.notifications:
-            # 自分へのリプライ・メンションかつ、まだ返信していない「投稿ID」のみ！
             if notif.reason in ['reply', 'mention'] and notif.uri not in replied_uris:
                 author_handle = notif.author.handle
                 comment_text = getattr(notif.record, 'text', '')
 
-                # 相手のコメントにNGワードがあればスルー
                 if not is_safe(comment_text, ng_words):
-                    print(f"NGワードを含むコメントのためスルー: @{author_handle}")
-                    save_replied_uri(notif.uri)  # 二度とチェックしないように記録
+                    print(f"NGワードまたはハッシュタグを含むコメントのためスルー: @{author_handle}")
+                    save_replied_uri(notif.uri)
                     continue
 
-                # マルコフでお返事を作成
                 sentence = text_model.make_short_sentence(100, tries=100)
                 if sentence:
                     reply_text = sentence.replace(" ", "")
@@ -101,17 +101,14 @@ def reply_to_comments(client, text_model, ng_words):
                         parent_ref = {'cid': notif.cid, 'uri': notif.uri}
                         root_ref = notif.record.reply.root if hasattr(notif.record, 'reply') and notif.record.reply else parent_ref
 
-                        # 話しかけてくれた相手のコメ欄だけにメンションでお返事！
                         client.send_post(
                             text=f"@{author_handle} {reply_text}",
                             reply_to={'root': root_ref, 'parent': parent_ref}
                         )
                         print(f"@{author_handle} のコメ欄にお返事しました！: {reply_text}")
 
-                        # 返信した「投稿ID」をメモして保存！
                         save_replied_uri(notif.uri)
 
-        # チェックが終わったら通知を既読化
         client.app.bsky.notification.update_seen({'seen_at': client.get_current_time_iso()})
     except Exception as e:
         print(f"コメ欄返信エラー: {e}")
@@ -121,7 +118,7 @@ def main():
     client.login(os.environ['BSKY_HANDLE'], os.environ['BSKY_PASSWORD'])
     ng_words = load_ng_words()
 
-    # ★ 機能1: #おとなみあーと の自動リポスト＆いいねを実行！
+    # ★ 機能1: #おとなみあーと の自動リポスト＆いいね
     repost_hashtag_posts(client, "おとなみあーと", ng_words)
 
     # ★ 機能2: フィードから素材を集める（1000件チェック）
@@ -167,7 +164,7 @@ def main():
     source_data = "\n".join(cleaned_texts)
     text_model = markovify.NewlineText(source_data, state_size=2)
 
-    # ★ 機能3: コメ欄に届いたコメントへのお返事（重複防止メモ付き）
+    # ★ 機能3: コメ欄にお返事
     reply_to_comments(client, text_model, ng_words)
 
     # ★ 機能4: 通常のマルコフ連鎖ポスト（140文字以内）
@@ -176,12 +173,11 @@ def main():
     if sentence:
         final_post = sentence.replace(" ", "")
         
-        # 投稿直前にもNGワードのダブルチェック！
         if is_safe(final_post, ng_words):
             print(f"投稿します: {final_post}")
             client.send_post(text=final_post)
         else:
-            print(f"生成文にNGワードが含まれたため投稿をスキップ: {final_post}")
+            print(f"生成文にNGワードまたはハッシュタグが含まれたため投稿をスキップ: {final_post}")
     else:
         print("文章が組めなかった")
 
