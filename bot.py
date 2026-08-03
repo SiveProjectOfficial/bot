@@ -139,7 +139,7 @@ def main():
     all_raw_posts = []
     cursor = None
     
-    for i in range(10): 
+    for i in range(20): 
         try:
             params = {'feed': target_feed, 'limit': 100}
             if cursor:
