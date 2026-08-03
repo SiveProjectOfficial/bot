@@ -4,19 +4,7 @@ from atproto import Client
 import markovify
 from janome.tokenizer import Tokenizer
 
-REPLIED_HISTORY_FILE = "replied_posts.txt"
-
-def load_replied_uris():
-    if os.path.exists(REPLIED_HISTORY_FILE):
-        with open(REPLIED_HISTORY_FILE, "r", encoding="utf-8") as f:
-            return set(line.strip() for line in f if line.strip())
-    return set()
-
-def save_replied_uri(uri):
-    with open(REPLIED_HISTORY_FILE, "a", encoding="utf-8") as f:
-        f.write(f"{uri}\n")
-
-# --- NGワードフィルター ---
+# --- 鉄壁のNGワードフィルター ---
 def load_ng_words():
     if os.path.exists("ng_words.txt"):
         with open("ng_words.txt", "r", encoding="utf-8") as f:
@@ -66,21 +54,39 @@ def repost_hashtag_posts(client, tag_name, ng_words, limit=10):
     except Exception as e:
         print(f"ハッシュタグリポストエラー: {e}")
 
-# --- コメント返信機能 ---
+# --- コメント返信機能（無限ループ完全防止版） ---
 def reply_to_comments(client, text_model, ng_words):
     print("コメントをチェック中...")
-    replied_uris = load_replied_uris()
+    my_handle = os.environ.get('BSKY_HANDLE')
 
     try:
-        response = client.app.bsky.notification.list_notifications({'limit': 10})
+        # 1. まずボット自身の直近の投稿（Author Feed）を取得して、「すでに返信した親ポストのURI」を自動で洗い出す
+        already_replied_uris = set()
+        feed_res = client.app.bsky.feed.get_author_feed({'actor': my_handle, 'limit': 30})
+        for item in feed_res.feed:
+            record = item.post.record
+            # 自分が誰かに返信している場合、その親ポスト（parent）のURIを記録しておく
+            if hasattr(record, 'reply') and record.reply and hasattr(record.reply, 'parent'):
+                already_replied_uris.add(record.reply.parent.uri)
+
+        # 2. 通知をチェックして、まだ返信していないものだけに返信する
+        response = client.app.bsky.notification.list_notifications({'limit': 15})
         for notif in response.notifications:
-            if notif.reason in ['reply', 'mention'] and notif.uri not in replied_uris:
+            if notif.reason == 'reply':
+                # すでにこの通知のポストに返信していらスルー
+                if notif.uri in already_replied_uris:
+                    print(f"すでに返信済みのポストのためスルー: {notif.uri}")
+                    continue
+
+                # 自分自身の投稿への通知ならスルー
+                if notif.author.handle == my_handle:
+                    continue
+
                 author_handle = notif.author.handle
                 comment_text = getattr(notif.record, 'text', '')
 
                 safe_comment = is_safe(comment_text, ng_words)
                 if not safe_comment:
-                    save_replied_uri(notif.uri)
                     continue
 
                 sentence = text_model.make_short_sentence(100, tries=100)
@@ -94,7 +100,9 @@ def reply_to_comments(client, text_model, ng_words):
                         reply_to={'root': root_ref, 'parent': parent_ref}
                     )
                     print(f"@{author_handle} にお返事しました: {reply_text}")
-                    save_replied_uri(notif.uri)
+                    
+                    # 今回返信した分をセットに追加して、同じ実行内で二重返信しないようにする
+                    already_replied_uris.add(notif.uri)
 
         client.app.bsky.notification.update_seen({'seen_at': client.get_current_time_iso()})
     except Exception as e:
@@ -104,44 +112,46 @@ def main():
     client = Client()
     client.login(os.environ['BSKY_HANDLE'], os.environ['BSKY_PASSWORD'])
     ng_words = load_ng_words()
+    my_handle = os.environ.get('BSKY_HANDLE')
 
     # 1. ハッシュタグリポスト
     repost_hashtag_posts(client, "おとなみあーと", ng_words)
 
-    # 2. タイムライン（ホーム）から素材を集める（確実）
+    # 2. ボット自身の過去の投稿（Author Feed）から学習素材を集める
+    print(f"@{my_handle} の投稿から学習素材を集めているよ...")
     all_raw_posts = []
     cursor = None
     
-    for i in range(3): 
-        try:
-            params = {'limit': 100}
+    try:
+        for i in range(5): 
+            params = {'actor': my_handle, 'limit': 50}
             if cursor:
                 params['cursor'] = cursor
-            response = client.app.bsky.feed.get_timeline(params)
+            response = client.app.bsky.feed.get_author_feed(params)
             all_raw_posts.extend(response.feed)
             cursor = response.cursor
             if not cursor: break
-        except Exception as e:
-            print(f"取得エラー: {e}")
-            break
+    except Exception as e:
+        print(f"投稿取得エラー: {e}")
 
     cleaned_texts = []
     for item in all_raw_posts:
-        safe_text = is_safe(item.post.record.text, ng_words)
-        if safe_text and len(safe_text) >= 2:
-            if re.search(r'[ぁ-んァ-ヶー一-龠]', safe_text):
-                cleaned_texts.append(tokenize(safe_text))
+        if item.post.author.handle == my_handle and hasattr(item.post.record, 'text'):
+            safe_text = is_safe(item.post.record.text, ng_words)
+            if safe_text and len(safe_text) >= 2:
+                if re.search(r'[ぁ-んァ-ヶー一-龠]', safe_text):
+                    cleaned_texts.append(tokenize(safe_text))
 
     print(f"最終的に集まった素材数: {len(cleaned_texts)}件")
 
     if len(cleaned_texts) < 3:
-        print("素材不足！")
+        print("素材不足！（ボット自身のポストがまだ少ないみたい）")
         return
 
     source_data = "\n".join(cleaned_texts)
     text_model = markovify.NewlineText(source_data, state_size=2)
     
-    # 3. 返信チェック
+    # 3. 返信チェック（無限ループ防止付き）
     reply_to_comments(client, text_model, ng_words)
 
     # 4. 通常ポスト
