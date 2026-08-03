@@ -16,8 +16,8 @@ def is_safe(text, ng_words):
     clean_text = re.sub(r'https?://[\w/:%#\$&\?\(\)~\.=\+\-]+', '', text)
     # 2. @メンションを抹消
     clean_text = re.sub(r'@[\w\.]+', '', clean_text)
-    # 3. 「#」の記号だけを消して、後ろの言葉は残す
-    clean_text = clean_text.replace("#", " ")
+    # 3. 「#」の記号を完全になくす（空文字に置換してタグの羅列を防ぐ）
+    clean_text = clean_text.replace("#", "")
     
     # NGワードチェック
     for word in ng_words:
@@ -71,7 +71,6 @@ def reply_to_comments(client, text_model, ng_words):
         # 2. 通知を取得
         response = client.app.bsky.notification.list_notifications({'limit': 15})
         for notif in response.notifications:
-            # reply（返信）かつ、すでに返信済みのURIでなく、自分自身の投稿への返信でないもの
             if notif.reason == 'reply':
                 if notif.uri in already_replied_uris:
                     print(f"すでに返信済みのポストのためスルー: {notif.uri}")
@@ -80,16 +79,11 @@ def reply_to_comments(client, text_model, ng_words):
                 if notif.author.handle == my_handle:
                     continue
 
-                # ここが重要：その返信の「大元の投稿（root）」または「親の投稿（parent）」が、ボット自身の投稿であるかを確認する
                 record = notif.record
                 if hasattr(record, 'reply') and record.reply:
                     reply_ref = record.reply
-                    # ざっくり言うと、リプライツリーのルートや親が自分のもの、あるいは通知元が自分の投稿に紐づいているかチェック
-                    # atprotoの通知構造では、ボットの投稿に対するリプライの場合、parentかrootの作者が自分（または自分が関わっているスレッド）になる
-                    # 安全のため、返信がついた相手の投稿情報を取得して確認する
                     try:
                         parent_post_uri = reply_ref.parent.uri
-                        # 親ポストの情報を取得して、投稿者が自分（my_handle）かどうかをチェック！
                         parent_post_res = client.app.bsky.feed.get_posts({'uris': [parent_post_uri]})
                         if parent_post_res.posts:
                             parent_author = parent_post_res.posts[0].author.handle
@@ -157,17 +151,15 @@ def main():
         except Exception as e:
             print(f"取得エラー: {e}")
             break
-        cleaned_texts = []
+
+    cleaned_texts = []
     for item in all_raw_posts:
         if hasattr(item.post.record, 'text'):
             safe_text = is_safe(item.post.record.text, ng_words)
             if safe_text and len(safe_text) >= 2:
-                # ひらがな・カタカナ・漢字のいずれかが含まれているものだけ採用（これで英語は完全に弾かれます！）
+                # ひらがな・カタカナ・漢字のいずれかが含まれているものだけ採用
                 if re.search(r'[ぁ-んァ-ヶー一-龠]', safe_text):
                     cleaned_texts.append(tokenize(safe_text))
-
-
-
 
     print(f"最終的に集まった素材数: {len(cleaned_texts)}件")
 
@@ -187,6 +179,12 @@ def main():
 
     if sentence:
         final_post = sentence.replace(" ", "")
+        
+        # ハッシュタグ的な記号が混ざり込んでいないか念のためガード（必要に応じて調整してね）
+        if final_post.count("#") > 0:
+            print("ハッシュタグが含まれているためスキップします")
+            return
+
         print(f"投稿します: {final_post}")
         client.send_post(text=final_post)
     else:
