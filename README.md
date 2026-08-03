@@ -25,15 +25,15 @@ Blueskyから
 **「BSKY_HANDLE」**  
 **「BSKY_PASSWORD」**  
 
-を作成してください。
+を作成してください。（題名やキーは一文字も間違えないでください）
 
 6. 以下をダウンロード又はコピーしてGithubについさっき作ったリポジトリに新規ファイルを作成してください。  
 
 **・ng_words.txt**  
 **・bot.py**  
 **・requirements.txt**  
-**・bot/.github/workflows/main.yml** 
-
+**・bot/.github/workflows/main.yml**  
+（もちろんこれらも一文字も間違えないでください！）  
 ***ハッシュタグリポスト部分のハッシュタグは貴方のお好みのハッシュタグに書き換えてください！***  
 
 【このリポジトリにあるファイルについて】  
