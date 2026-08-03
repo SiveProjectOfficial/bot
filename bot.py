@@ -14,7 +14,7 @@ def load_ng_words():
 def is_safe(text, ng_words):
     # 1. URL（画像リンクなど）を完全に抹消
     clean_text = re.sub(r'https?://[\w/:%#\$&\?\(\)~\.=\+\-]+', '', text)
-    
+    clean_text = re.sub(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '', clean_text)
     # 2. @メンション（@usernameなど）を完全に抹消
     clean_text = re.sub(r'@[\w\.]+', '', clean_text)
     
