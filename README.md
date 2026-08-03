@@ -14,7 +14,7 @@ Blueskyから
 **「More」**  
 ↓  
 **「Settings」**  
-へ行きます。そこから更に
+へ行きます。そこから更に  
 **「Settings」**  
 ↓  
 **「Secrets and variables」**  
