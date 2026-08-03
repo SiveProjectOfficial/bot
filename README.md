@@ -1,9 +1,8 @@
 マルコフ連鎖botのテンプレにしてもらっても構いません！  
-ng_words.txt  
-bot.py  
-requirements.txt  
-bot/.github/workflows
-/main.yml  
+・ng_words.txt  
+・bot.py  
+・requirements.txt  
+・bot/.github/workflows/main.yml  
 はパクってもらってダウンロード使用してもらっても構いません！  
 **ハッシュタグリポスト部分のハッシュタグは貴方のお好みのハッシュタグに書き換えてください！**  
 ng_words.txt⁠は自作発言からの再配布はしないでください。  
