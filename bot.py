@@ -54,33 +54,51 @@ def repost_hashtag_posts(client, tag_name, ng_words, limit=10):
     except Exception as e:
         print(f"ハッシュタグリポストエラー: {e}")
 
-# --- コメント返信機能（無限ループ完全防止版） ---
+# --- コメント返信機能（ボットの投稿についたコメ欄のみ） ---
 def reply_to_comments(client, text_model, ng_words):
     print("コメントをチェック中...")
     my_handle = os.environ.get('BSKY_HANDLE')
 
     try:
-        # 1. まずボット自身の直近の投稿（Author Feed）を取得して、「すでに返信した親ポストのURI」を自動で洗い出す
+        # 1. すでに自分が返信したポストのURIを洗い出す
         already_replied_uris = set()
         feed_res = client.app.bsky.feed.get_author_feed({'actor': my_handle, 'limit': 30})
         for item in feed_res.feed:
             record = item.post.record
-            # 自分が誰かに返信している場合、その親ポスト（parent）のURIを記録しておく
             if hasattr(record, 'reply') and record.reply and hasattr(record.reply, 'parent'):
                 already_replied_uris.add(record.reply.parent.uri)
 
-        # 2. 通知をチェックして、まだ返信していないものだけに返信する
+        # 2. 通知を取得
         response = client.app.bsky.notification.list_notifications({'limit': 15})
         for notif in response.notifications:
+            # reply（返信）かつ、すでに返信済みのURIでなく、自分自身の投稿への返信でないもの
             if notif.reason == 'reply':
-                # すでにこの通知のポストに返信していらスルー
                 if notif.uri in already_replied_uris:
                     print(f"すでに返信済みのポストのためスルー: {notif.uri}")
                     continue
 
-                # 自分自身の投稿への通知ならスルー
                 if notif.author.handle == my_handle:
                     continue
+
+                # ここが重要：その返信の「大元の投稿（root）」または「親の投稿（parent）」が、ボット自身の投稿であるかを確認する
+                record = notif.record
+                if hasattr(record, 'reply') and record.reply:
+                    reply_ref = record.reply
+                    # ざっくり言うと、リプライツリーのルートや親が自分のもの、あるいは通知元が自分の投稿に紐づいているかチェック
+                    # atprotoの通知構造では、ボットの投稿に対するリプライの場合、parentかrootの作者が自分（または自分が関わっているスレッド）になる
+                    # 安全のため、返信がついた相手の投稿情報を取得して確認する
+                    try:
+                        parent_post_uri = reply_ref.parent.uri
+                        # 親ポストの情報を取得して、投稿者が自分（my_handle）かどうかをチェック！
+                        parent_post_res = client.app.bsky.feed.get_posts({'uris': [parent_post_uri]})
+                        if parent_post_res.posts:
+                            parent_author = parent_post_res.posts[0].author.handle
+                            if parent_author != my_handle:
+                                print(f"ボットの投稿に対するコメ欄ではないためスルー (親の作者: @{parent_author})")
+                                continue
+                    except Exception as e:
+                        print(f"親ポストの確認中エラー: {e}")
+                        continue
 
                 author_handle = notif.author.handle
                 comment_text = getattr(notif.record, 'text', '')
@@ -99,9 +117,7 @@ def reply_to_comments(client, text_model, ng_words):
                         text=f"@{author_handle} {reply_text}",
                         reply_to={'root': root_ref, 'parent': parent_ref}
                     )
-                    print(f"@{author_handle} にお返事しました: {reply_text}")
-                    
-                    # 今回返信した分をセットに追加して、同じ実行内で二重返信しないようにする
+                    print(f"@{author_handle} のコメ欄にお返事しました: {reply_text}")
                     already_replied_uris.add(notif.uri)
 
         client.app.bsky.notification.update_seen({'seen_at': client.get_current_time_iso()})
@@ -112,50 +128,59 @@ def main():
     client = Client()
     client.login(os.environ['BSKY_HANDLE'], os.environ['BSKY_PASSWORD'])
     ng_words = load_ng_words()
-    my_handle = os.environ.get('BSKY_HANDLE')
 
     # 1. ハッシュタグリポスト
     repost_hashtag_posts(client, "おとなみあーと", ng_words)
 
-    # 2. ボット自身の過去の投稿（Author Feed）から学習素材を集める
-    print(f"@{my_handle} の投稿から学習素材を集めているよ...")
+    # 2. 世の中のフィードから素材を集める
+    try:
+        feeds = client.app.bsky.unspecced.get_popular_feed_generators()
+        target_feed = next((f.uri for f in feeds.feeds if "Discover" in f.display_name or "Discovery" in f.display_name), None)
+        if not target_feed:
+            target_feed = 'at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot'
+    except Exception as e:
+        print(f"フィード検索失敗: {e}")
+        return
+
     all_raw_posts = []
     cursor = None
     
-    try:
-        for i in range(5): 
-            params = {'actor': my_handle, 'limit': 50}
+    for i in range(10): 
+        try:
+            params = {'feed': target_feed, 'limit': 100}
             if cursor:
                 params['cursor'] = cursor
-            response = client.app.bsky.feed.get_author_feed(params)
+            response = client.app.bsky.feed.get_feed(params)
             all_raw_posts.extend(response.feed)
             cursor = response.cursor
             if not cursor: break
-    except Exception as e:
-        print(f"投稿取得エラー: {e}")
+        except Exception as e:
+            print(f"取得エラー: {e}")
+            break
 
     cleaned_texts = []
     for item in all_raw_posts:
-        if item.post.author.handle == my_handle and hasattr(item.post.record, 'text'):
-            safe_text = is_safe(item.post.record.text, ng_words)
-            if safe_text and len(safe_text) >= 2:
-                if re.search(r'[ぁ-んァ-ヶー一-龠]', safe_text):
-                    cleaned_texts.append(tokenize(safe_text))
+        safe_text = is_safe(item.post.record.text, ng_words)
+        if safe_text and len(safe_text) >= 2:
+            if re.search(r'[ぁ-んァ-ヶー一-龠]', safe_text):
+                cleaned_texts.append(tokenize(safe_text))
 
     print(f"最終的に集まった素材数: {len(cleaned_texts)}件")
 
     if len(cleaned_texts) < 3:
-        print("素材不足！（ボット自身のポストがまだ少ないみたい）")
+        print("素材不足！")
         return
 
+    # 3. マルコフ連鎖で混ぜる
     source_data = "\n".join(cleaned_texts)
     text_model = markovify.NewlineText(source_data, state_size=2)
     
-    # 3. 返信チェック（無限ループ防止付き）
+    # 4. ボットの投稿に対するコメ欄のみ返信チェック
     reply_to_comments(client, text_model, ng_words)
 
-    # 4. 通常ポスト
+    # 5. 通常ポスト
     sentence = text_model.make_short_sentence(140, tries=100)
+
     if sentence:
         final_post = sentence.replace(" ", "")
         print(f"投稿します: {final_post}")
