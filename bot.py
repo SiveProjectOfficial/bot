@@ -161,8 +161,11 @@ def main():
     for item in all_raw_posts:
         if hasattr(item.post.record, 'text'):
             safe_text = is_safe(item.post.record.text, ng_words)
-            if safe_text and len(safe_text) >= 1:
-                cleaned_texts.append(tokenize(safe_text))
+            if safe_text and len(safe_text) >= 2:
+                # 英語（アルファベット）だけの投稿を除外して、日本語か絵文字が含まれていたら採用！
+                if not re.fullmatch(r'[A-Za-z\s\d!-\/:-@[-`{-~]*', safe_text):
+                    cleaned_texts.append(tokenize(safe_text))
+
 
 
     print(f"最終的に集まった素材数: {len(cleaned_texts)}件")
