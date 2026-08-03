@@ -157,14 +157,15 @@ def main():
         except Exception as e:
             print(f"取得エラー: {e}")
             break
-    cleaned_texts = []
+        cleaned_texts = []
     for item in all_raw_posts:
         if hasattr(item.post.record, 'text'):
             safe_text = is_safe(item.post.record.text, ng_words)
             if safe_text and len(safe_text) >= 2:
-                # 英語（アルファベット）だけの投稿を除外して、日本語か絵文字が含まれていたら採用！
-                if not re.fullmatch(r'[A-Za-z\s\d!-\/:-@[-`{-~]*', safe_text):
+                # ひらがな・カタカナ・漢字のいずれかが含まれているものだけ採用（これで英語は完全に弾かれます！）
+                if re.search(r'[ぁ-んァ-ヶー一-龠]', safe_text):
                     cleaned_texts.append(tokenize(safe_text))
+
 
 
 
