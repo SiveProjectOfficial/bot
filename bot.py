@@ -4,7 +4,7 @@ from atproto import Client
 import markovify
 from janome.tokenizer import Tokenizer
 
-# --- 鉄壁のNGワードフィルター ---
+# NGワードフィルター
 def load_ng_words():
     if os.path.exists("ng_words.txt"):
         with open("ng_words.txt", "r", encoding="utf-8") as f:
@@ -12,11 +12,11 @@ def load_ng_words():
     return []
 
 def is_safe(text, ng_words):
-    # 1. URLを抹消
+    # URL消し
     clean_text = re.sub(r'https?://[\w/:%#\$&\?\(\)~\.=\+\-]+', '', text)
-    # 2. @メンションを抹消
+    # メンション消し
     clean_text = re.sub(r'@[\w\.]+', '', clean_text)
-    # 3. 「#」の記号を完全になくす（空文字に置換してタグの羅列を防ぐ）
+    # 「#」記号消し
     clean_text = clean_text.replace("#", "")
     
     # NGワードチェック
@@ -30,7 +30,7 @@ def tokenize(text):
     t = Tokenizer()
     return " ".join([token.surface for token in t.tokenize(text)])
 
-# --- ハッシュタグ検索＆リポスト機能 ---
+# 検索＆リポスト
 def repost_hashtag_posts(client, tag_name, ng_words, limit=10):
     my_handle = os.environ.get('BSKY_HANDLE')
     print(f"#{tag_name} の最新投稿をチェック中...")
@@ -54,13 +54,13 @@ def repost_hashtag_posts(client, tag_name, ng_words, limit=10):
     except Exception as e:
         print(f"ハッシュタグリポストエラー: {e}")
 
-# --- コメント返信機能（ボットの投稿についたコメ欄のみ） ---
+# ボットの投稿についたコメ欄の返信機能
 def reply_to_comments(client, text_model, ng_words):
     print("コメントをチェック中...")
     my_handle = os.environ.get('BSKY_HANDLE')
 
     try:
-        # 1. すでに自分が返信したポストのURIを洗い出す
+        # 自分が返信したポストのURI
         already_replied_uris = set()
         feed_res = client.app.bsky.feed.get_author_feed({'actor': my_handle, 'limit': 30})
         for item in feed_res.feed:
@@ -68,7 +68,7 @@ def reply_to_comments(client, text_model, ng_words):
             if hasattr(record, 'reply') and record.reply and hasattr(record.reply, 'parent'):
                 already_replied_uris.add(record.reply.parent.uri)
 
-        # 2. 通知を取得
+        # 通知
         response = client.app.bsky.notification.list_notifications({'limit': 15})
         for notif in response.notifications:
             if notif.reason == 'reply':
@@ -123,10 +123,10 @@ def main():
     client.login(os.environ['BSKY_HANDLE'], os.environ['BSKY_PASSWORD'])
     ng_words = load_ng_words()
 
-    # 1. ハッシュタグリポスト
+    # ハッシュタグリポスト
     repost_hashtag_posts(client, "おとなみあーと", ng_words)
 
-    # 2. 世の中のフィードから素材を集める
+    # フィードから素材集め
     try:
         feeds = client.app.bsky.unspecced.get_popular_feed_generators()
         target_feed = next((f.uri for f in feeds.feeds if "Discover" in f.display_name or "Discovery" in f.display_name), None)
@@ -157,7 +157,7 @@ def main():
         if hasattr(item.post.record, 'text'):
             safe_text = is_safe(item.post.record.text, ng_words)
             if safe_text and len(safe_text) >= 2:
-                # ひらがな・カタカナ・漢字のいずれかが含まれているものだけ採用
+            
                 if re.search(r'[ぁ-んァ-ヶー一-龠]', safe_text):
                     cleaned_texts.append(tokenize(safe_text))
 
@@ -167,20 +167,20 @@ def main():
         print("素材不足！")
         return
 
-    # 3. マルコフ連鎖で混ぜる
+    # マルコフ連鎖
     source_data = "\n".join(cleaned_texts)
     text_model = markovify.NewlineText(source_data, state_size=2)
     
-    # 4. ボットの投稿に対するコメ欄のみ返信チェック
+    # 投稿に対するコメ欄の返信チェック
     reply_to_comments(client, text_model, ng_words)
 
-    # 5. 通常ポスト
+    # 通常ポスト
     sentence = text_model.make_short_sentence(140, tries=100)
 
     if sentence:
         final_post = sentence.replace(" ", "")
         
-        # ハッシュタグ的な記号が混ざり込んでいないか念のためガード（必要に応じて調整してね）
+        # 記号混入確認
         if final_post.count("#") > 0:
             print("ハッシュタグが含まれているためスキップします")
             return
