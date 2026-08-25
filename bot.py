@@ -168,15 +168,19 @@ def main():
     all_raw_posts = []
     cursor = None
     
-    for i in range(10): 
+    # 414エラー対策：リクエストのサイズと回数を安全に制限
+    for i in range(5): 
         try:
-            params = {'feed': target_feed, 'limit': 100}
+            params = {'feed': target_feed, 'limit': 50}
             if cursor:
                 params['cursor'] = cursor
             response = client.app.bsky.feed.get_feed(params)
+            if not response or not response.feed:
+                break
             all_raw_posts.extend(response.feed)
-            cursor = response.cursor
-            if not cursor: break
+            cursor = getattr(response, 'cursor', None)
+            if not cursor: 
+                break
         except Exception as e:
             print(f"取得エラー: {e}")
             break
