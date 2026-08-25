@@ -201,7 +201,7 @@ def main():
 
     # マルコフ連鎖
     source_data = "\n".join(cleaned_texts)
-    text_model = markovify.NewlineText(source_data, state_size=2)
+    text_model = markovify.NewlineText(source_data, state_size=1)
     
     # 投稿に対するコメ欄の返信チェック
     reply_to_comments(client, text_model, ng_words)
