@@ -36,9 +36,29 @@ def repost_hashtag_posts(client, tag_name, ng_words, limit=10):
     print(f"#{tag_name} の最新投稿をチェック中...")
 
     try:
+        # 1. すでに自分がリポスト・いいねしていないか判定するため、自分の直近のタイムライン（フィード）を取得しておく
+        already_reposted_uris = set()
+        feed_res = client.app.bsky.feed.get_author_feed({'actor': my_handle, 'limit': 50})
+        for item in feed_res.feed:
+            record = item.post.record
+            # リポストの場合は理由や元のURIを確認、または自分が投稿したものとしてURIを記憶
+            if item.post.uri:
+                already_reposted_uris.add(item.post.uri)
+            # 引用リポストや通常ポストの元ネタなどの判定も兼ねる
+
         search_res = client.app.bsky.feed.search_posts({'q': f"#{tag_name}", 'limit': limit})
         for post in search_res.posts:
             if post.author.handle == my_handle:
+                continue
+
+            # 2. すでに自分がアクション済みのURIならスキップ！
+            if post.uri in already_reposted_uris:
+                print(f"すでに処理済みの投稿のためスルー: {post.uri}")
+                continue
+
+            # viewerデータから自分がすでに「いいね」しているかチェック（atprotoの機能）
+            if post.viewer and getattr(post.viewer, 'like', None):
+                print(次から次へとすでにいいね済みの投稿のためスルー: {post.uri})
                 continue
 
             text = post.record.text
@@ -49,7 +69,10 @@ def repost_hashtag_posts(client, tag_name, ng_words, limit=10):
                 client.like(post.uri, post.cid)
                 client.repost(post.uri, post.cid)
                 print(f"#{tag_name} をリポスト＆いいねしました！ (@{post.author.handle})")
-            except Exception:
+                # 処理したURIをセットに追加して今回の実行内での重複も防ぐ
+                already_reposted_uris.add(post.uri)
+            except Exception as e:
+                print(f"リポスト/いいねエラー: {e}")
                 pass
     except Exception as e:
         print(f"ハッシュタグリポストエラー: {e}")
@@ -115,6 +138,8 @@ def reply_to_comments(client, text_model, ng_words):
                     already_replied_uris.add(notif.uri)
 
         client.app.bsky.notification.update_seen({'seen_at': client.get_current_time_iso()})
+    except Exception as io_e:
+        print(f"コメント返信エラー: {io_e}")
     except Exception as e:
         print(f"コメント返信エラー: {e}")
 
@@ -137,7 +162,7 @@ def main():
         return
 
     all_raw_posts = []
-    cursor = None
+        cursor = None
     
     for i in range(10): 
         try:
