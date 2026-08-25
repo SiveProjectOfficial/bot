@@ -16,14 +16,29 @@ def is_safe(text, ng_words):
     clean_text = re.sub(r'https?://[\w/:%#\$&\?\(\)~\.=\+\-]+', '', text)
     # メンション消し
     clean_text = re.sub(r'@[\w\.]+', '', clean_text)
-    # 「#」記号消し
-    clean_text = clean_text.replace("#", "")
     
+    # 1. 「部」で終わる言葉や、文脈としての部活系ワードを弾く
+    if re.search(r'部$', text) or '部活' in text:
+        return False
+
+    # 2. 災害・地震・警報系ワードを弾く
+    disaster_pattern = r'(地震|震度|津波|警報|注意報|避難|災害|冠水|停電|余震)'
+    if re.search(disaster_pattern, text):
+        return False
+
+    # 3. 代表的な都道府県名や「〜市・〜町・〜村」などの地名を弾く
+    place_pattern = r'(北海道|青森県|岩手県|宮城県|秋田県|山形県|福島県|茨城県|栃木県|群馬県|埼玉県|千葉県|東京都|神奈川県|新潟県|富山県|石川県|福井県|山梨県|長野県|岐阜県|静岡県|愛知県|三重県|滋賀県|京都府|大阪府|兵庫県|奈良県|和歌山県|鳥取県|島根県|岡山県|広島県|山口県|徳島県|香川県|愛媛県|高知県|福岡県|佐賀県|長崎県|熊本県|大分県|宮崎県|鹿児島県|沖縄県|[都道府県]|.+[市区町村])'
+    if re.search(place_pattern, text):
+        return False
+
     # NGワードチェック
     for word in ng_words:
         if word in clean_text:
             return False
             
+    # ハッシュタグがくっついて単語が崩壊しないように、#や＃の直前にスペースを挿入する
+    clean_text = re.sub(r'([#＃])', r' \1', clean_text)
+    
     return clean_text.strip()
 
 def tokenize(text):
@@ -56,7 +71,7 @@ def repost_hashtag_posts(client, tag_name, ng_words, limit=10):
                 continue
 
             text = post.record.text
-            if any(w in text for w in ng_words):
+            if not is_safe(text, ng_words):
                 continue
 
             try:
@@ -193,8 +208,8 @@ def main():
     if sentence:
         final_post = sentence.replace(" ", "")
         
-        # 記号混入確認
-        if final_post.count("#") > 0:
+        # ハッシュタグの混入チェック（念のため）
+        if "#" in final_post or "＃" in final_post:
             print("ハッシュタグが含まれているためスキップします")
             return
 
