@@ -4,14 +4,22 @@ from atproto import Client
 import markovify
 from janome.tokenizer import Tokenizer
 
-# NGワードフィルター
+# NGワードフィルター（余分な空白や改行をしっかり削るように修正）
 def load_ng_words():
+    ng_list = []
     if os.path.exists("ng_words.txt"):
         with open("ng_words.txt", "r", encoding="utf-8") as f:
-            return [line.strip() for line in f if line.strip()]
-    return []
+            for line in f:
+                word = line.strip()
+                # コメント行や空行を除外して追加
+                if word and not word.startswith("#"):
+                    ng_list.append(word)
+    return ng_list
 
 def is_safe(text, ng_words):
+    if not text:
+        return False
+
     # URL消し
     clean_text = re.sub(r'https?://[\w/:%#\$&\?\(\)~\.=\+\-]+', '', text)
     # メンション消し
@@ -31,15 +39,12 @@ def is_safe(text, ng_words):
     if re.search(place_pattern, text):
         return False
 
-    # NGワードチェック
+    # NGワードチェック（テキスト内にNGワードが含まれているか完全一致・部分一致でチェック）
     for word in ng_words:
         if word in clean_text:
             return False
             
-    # ハッシュタグがくっついて単語が崩壊しないように、#や＃の直前にスペースを挿入する
-    clean_text = re.sub(r'([#＃])', r' \1', clean_text)
-    
-    return clean_text.strip()
+    return True # すべてクリアしたら安全（True）を返す
 
 def tokenize(text):
     t = Tokenizer()
@@ -126,8 +131,8 @@ def reply_to_comments(client, text_model, ng_words):
                 author_handle = notif.author.handle
                 comment_text = getattr(notif.record, 'text', '')
 
-                safe_comment = is_safe(comment_text, ng_words)
-                if not safe_comment:
+                if not is_safe(comment_text, ng_words):
+                    print(f"NGワード検知のためコメント返信をスキップ: {comment_text}")
                     continue
 
                 sentence = text_model.make_short_sentence(100, tries=100)
@@ -151,6 +156,7 @@ def main():
     client = Client()
     client.login(os.environ['BSKY_HANDLE'], os.environ['BSKY_PASSWORD'])
     ng_words = load_ng_words()
+    print(f"読み込んだNGワード数: {len(ng_words)}件")
 
     # ハッシュタグリポスト
     repost_hashtag_posts(client, "おとなみあーと", ng_words)
@@ -168,7 +174,6 @@ def main():
     all_raw_posts = []
     cursor = None
     
-    # 414エラー対策：リクエストのサイズと回数を安全に制限
     for i in range(5): 
         try:
             params = {'feed': target_feed, 'limit': 50}
@@ -188,10 +193,11 @@ def main():
     cleaned_texts = []
     for item in all_raw_posts:
         if hasattr(item.post.record, 'text'):
-            safe_text = is_safe(item.post.record.text, ng_words)
-            if safe_text and len(safe_text) >= 2:
-                if re.search(r'[ぁ-んァ-ヶー一-龠]', safe_text):
-                    cleaned_texts.append(tokenize(safe_text))
+            text = item.post.record.text
+            # 安全チェックを通過したものだけトークン化して素材にする
+            if is_safe(text, ng_words) and len(text) >= 2:
+                if re.search(r'[ぁ-んァ-ヶー一-龠]', text):
+                    cleaned_texts.append(tokenize(text))
 
     print(f"最終的に集まった素材数: {len(cleaned_texts)}件")
 
@@ -199,28 +205,31 @@ def main():
         print("素材不足！")
         return
 
-    # マルコフ連鎖
+    # マルコフ連鎖モデル作成
     source_data = "\n".join(cleaned_texts)
     text_model = markovify.NewlineText(source_data, state_size=1)
     
     # 投稿に対するコメ欄の返信チェック
     reply_to_comments(client, text_model, ng_words)
 
-    # 通常ポスト
-    sentence = text_model.make_short_sentence(140, tries=100)
+    # 通常ポスト生成の際、生成された文章自体もNGワードチェックにかける
+    for _ in range(10): # 最大10回トライして安全な文章を探す
+        sentence = text_model.make_short_sentence(140, tries=100)
+        if sentence:
+            final_post = sentence.replace(" ", "")
+            
+            # ハッシュタグの混入チェック ＆ NGワードチェック
+            if "#" in final_post or "＃" in final_post:
+                continue
+            if not is_safe(final_post, ng_words):
+                print(f"生成された文にNGワードが含まれていたため破棄: {final_post}")
+                continue
 
-    if sentence:
-        final_post = sentence.replace(" ", "")
-        
-        # ハッシュタグの混入チェック（念のため）
-        if "#" in final_post or "＃" in final_post:
-            print("ハッシュタグが含まれているためスキップします")
-            return
-
-        print(f"投稿します: {final_post}")
-        client.send_post(text=final_post)
+            print(f"投稿します: {final_post}")
+            client.send_post(text=final_post)
+            break
     else:
-        print("文章が組めなかった")
+        print("安全な文章が組めなかった、またはすべてNGワードに引っかかりました")
 
 if __name__ == "__main__":
     main()
