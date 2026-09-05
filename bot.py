@@ -4,14 +4,13 @@ from atproto import Client
 import markovify
 from janome.tokenizer import Tokenizer
 
-# NGワードフィルター（余分な空白や改行をしっかり削るように修正）
+# NGワードフィルター（メンション以外の英語をしっかり弾くように修正）
 def load_ng_words():
     ng_list = []
     if os.path.exists("ng_words.txt"):
         with open("ng_words.txt", "r", encoding="utf-8") as f:
             for line in f:
                 word = line.strip()
-                # コメント行や空行を除外して追加
                 if word and not word.startswith("#"):
                     ng_list.append(word)
     return ng_list
@@ -22,8 +21,12 @@ def is_safe(text, ng_words):
 
     # URL消し
     clean_text = re.sub(r'https?://[\w/:%#\$&\?\(\)~\.=\+\-]+', '', text)
-    # メンション消し
-    clean_text = re.sub(r'@[\w\.]+', '', clean_text)
+    
+    # メンションを消したテキストを作る（メンション内の英語は許可する用）
+    text_without_mentions = re.sub(r'@[\w\.-]+', '', clean_text)
+    
+    # 通常チェック用のメンション消し
+    clean_text = re.sub(r'@[\w\.-]+', '', clean_text)
     
     # 1. 「部」で終わる言葉や、文脈としての部活系ワードを弾く
     if re.search(r'部$', text) or '部活' in text:
@@ -38,16 +41,17 @@ def is_safe(text, ng_words):
     place_pattern = r'(北海道|青森県|岩手県|宮城県|秋田県|山形県|福島県|茨城県|栃木県|群馬県|埼玉県|千葉県|東京都|神奈川県|新潟県|富山県|石川県|福井県|山梨県|長野県|岐阜県|静岡県|愛知県|三重県|滋賀県|京都府|大阪府|兵庫県|奈良県|和歌山県|鳥取県|島根県|岡山県|広島県|山口県|徳島県|香川県|愛媛県|高知県|福岡県|佐賀県|長崎県|熊本県|大分県|宮崎県|鹿児島県|沖縄|ヒロシマ|ナガサキ|広島|長崎|沖縄県|[都道府県]|.+[市区町村])'
     if re.search(place_pattern, text):
         return False
-    place_pattern = r'(a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v|w|x|y|z|A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z)'
-    if re.search(place_pattern, text):
+
+    # 4. メンション「以外」の場所に英字（アルファベット）が含まれていたら弾く
+    if re.search(r'[a-zA-Z]', text_without_mentions):
         return False
 
-    # NGワードチェック（テキスト内にNGワードが含まれているか完全一致・部分一致でチェック）
+    # NGワードチェック
     for word in ng_words:
         if word in clean_text:
             return False
             
-    return True # すべてクリアしたら安全（True）を返す
+    return True
 
 def tokenize(text):
     t = Tokenizer()
@@ -135,7 +139,7 @@ def reply_to_comments(client, text_model, ng_words):
                 comment_text = getattr(notif.record, 'text', '')
 
                 if not is_safe(comment_text, ng_words):
-                    print(f"NGワード検知のためコメント返信をスキップ: {comment_text}")
+                    print(f"NGワード検知または英語混入のためコメント返信をスキップ: {comment_text}")
                     continue
 
                 sentence = text_model.make_short_sentence(100, tries=100)
@@ -197,7 +201,6 @@ def main():
     for item in all_raw_posts:
         if hasattr(item.post.record, 'text'):
             text = item.post.record.text
-            # 安全チェックを通過したものだけトークン化して素材にする
             if is_safe(text, ng_words) and len(text) >= 2:
                 if re.search(r'[ぁ-んァ-ヶー一-龠]', text):
                     cleaned_texts.append(tokenize(text))
@@ -216,16 +219,15 @@ def main():
     reply_to_comments(client, text_model, ng_words)
 
     # 通常ポスト生成の際、生成された文章自体もNGワードチェックにかける
-    for _ in range(10): # 最大10回トライして安全な文章を探す
+    for _ in range(10): 
         sentence = text_model.make_short_sentence(140, tries=100)
         if sentence:
             final_post = sentence.replace(" ", "")
             
-            # ハッシュタグの混入チェック ＆ NGワードチェック
             if "#" in final_post or "＃" in final_post:
                 continue
             if not is_safe(final_post, ng_words):
-                print(f"生成された文にNGワードが含まれていたため破棄: {final_post}")
+                print(f"生成された文にNGワードや英語が含まれていたため破棄: {final_post}")
                 continue
 
             print(f"投稿します: {final_post}")
